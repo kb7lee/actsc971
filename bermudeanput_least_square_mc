@@ -1,0 +1,60 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+class LSTM(object):
+    
+    def __init__( self, s1, s2, r, sig1, sig2, T, M, sim, strike,rho ):
+        self.s1 = s1
+        self.s2 = s2
+        self.r = r
+        self.sig1 = sig1 
+        self.sig2 = sig2
+        self.T = T
+        self.M = int(M)
+        self.simulations = sim
+        self.strike = strike
+        self.time_unit = self.T / float(self.M)
+        self.discount = np.exp(-self.r * self.time_unit)
+        self.rho = rho
+        
+    def simulation(self, seed = 123):
+        np.random.seed(seed)
+        self.price1_matrix = np.zeros((self.M + 1, self.simulations), dtype=np.float64)
+        self.price2_matrix = np.zeros((self.M + 1, self.simulations), dtype=np.float64)
+        self.price1_matrix[0,:] = self.s1
+        self.price2_matrix[0,:] = self.s2
+        for t in range(1, self.M + 1):
+            brownian1 = np.random.standard_normal( int(self.simulations / 2) )
+            temp_brownian = np.random.standard_normal( int(self.simulations / 2) )
+            
+            brownian1 = np.concatenate((brownian1, -brownian1))
+            temp_brownian = np.concatenate((temp_brownian, -temp_brownian))
+            
+            brownian2 = brownian1 * self.rho + temp_brownian * (1- self.rho)**(0.5)
+            
+
+            self.price1_matrix[t, :] = (self.price1_matrix[t - 1, :]
+                                  * np.exp((self.r - self.sig1 ** 2 / 2.) * self.time_unit
+                                  + self.sig1 * brownian1 * np.sqrt(self.time_unit)))
+            
+            self.price2_matrix[t, :] = (self.price2_matrix[t - 1, :]
+                                  * np.exp((self.r - self.sig2 ** 2 / 2.) * self.time_unit
+                                  + self.sig2 * brownian2 * np.sqrt(self.time_unit)))
+        self.max_path = np.maximum(self.price1_matrix, self.price2_matrix)
+            
+        
+    def put_payoff(self):
+        """ Designed for put. But we can easily switch to call """
+        self.payoff = np.maximum(self.strike - self.max_path, np.zeros((self.M + 1, self.simulations),dtype=np.float64))
+    
+    
+    def ls_calculation(self):
+        self.value_matrix = np.zeros_like(self.payoff)
+        self.value_matrix[-1, :] = self.payoff[-1, :]
+        for t in range(self.M - 1, 0 , -1):
+            regression = np.polyfit(self.max_path[t, :], self.value_matrix[t + 1, :] * self.discount, 5)
+            continuation_value = np.polyval(regression, self.max_path[t, :])
+            self.value_matrix[t, :] = np.where(self.max_path[t, :] > continuation_value, self.max_path[t, :], 
+                        self.value_matrix[t + 1, :] * self.discount)
+    
+        return self.value_matrix[1,:] * self.discount
