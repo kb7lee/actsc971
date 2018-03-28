@@ -36,13 +36,27 @@ class LSTMC(object):
         self.payoff = np.maximum(self.strike - self.price1_matrix, np.zeros((self.M + 1, self.simulations),dtype=np.float64))
     
     
-    def ls_calculation(self):
+        def ls_calculation(self):
         self.value_matrix = np.zeros_like(self.payoff)
         self.value_matrix[-1, :] = self.payoff[-1, :]
         for t in range(self.M - 1, 0 , -1):
-            regression = np.polyfit(self.price1_matrix[t, :], self.value_matrix[t + 1, :] * self.discount, 5)
+            choice = self.payoff[t,:] > 0
+            #choice = self.payoff[t,:] > - 10 **1000
+            X = self.price1_matrix[t,choice]
+            Y = self.value_matrix[t + 1, choice] * self.discount
+            regression = np.polyfit(X, Y, 5)
             continuation_value = np.polyval(regression, self.price1_matrix[t, :])
             self.value_matrix[t, :] = np.where(self.payoff[t, :] > continuation_value, self.payoff[t, :], 
                         self.value_matrix[t + 1, :] * self.discount)
     
         return self.value_matrix[1,:] * self.discount
+    
+    
+example = LSTMC(36, 0.06, 0.2, 1, 50, 10000, 40)
+
+
+#example = LSTMC(40, 0.06, 0.2, 2, 50, 10000, 40)
+example.simulation()
+example.put_payoff()
+example.ls_calculation()
+np.mean(example.ls_calculation())
