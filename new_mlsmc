@@ -1,13 +1,11 @@
 
 
-# American Put option
-
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn import linear_model
 
 
-class MLSMC(object):
+class TMLSMC(object):
     
     def __init__( self, s1, r, sig1, T, M, sim, strike, degree, dispersion):
         self.s1 = s1
@@ -25,10 +23,12 @@ class MLSMC(object):
         self.coef = 0
         self.delta = np.zeros([self.simulations, 1])
         self.gamma = np.zeros([self.simulations, 1])
+        self.payoff = np.zeros((self.M+1, self.simulations))
+        self.value_matrix = np.zeros_like(self.payoff)
         
-    def simulation(self, seed = 12992323):
+    def simulation(self, seed = 123):
         np.random.seed(seed)
-        self.price1_matrix = np.zeros((self.M + 1, self.simulations), dtype=np.float64)
+        self.price1_matrix = np.zeros((self.M +1, self.simulations), dtype=np.float64)
         self.initial_values = self.s1 + np.random.standard_normal(self.simulations) * self.dispersion
         self.price1_matrix[0,:] = self.initial_values
         for t in range(1, self.M + 1):
@@ -42,22 +42,12 @@ class MLSMC(object):
                                   + self.sig1 * brownian1 * np.sqrt(self.time_unit)))
             
         
-    def put_payoff(self):
+    def cal_payoff(self):
         """ Designed for put. But we can easily switch to call """
-        self.payoff = np.maximum(self.strike - self.price1_matrix, np.zeros((self.M+1, self.simulations),dtype=np.float64))
+        #self.payoff = np.maximum(self.strike - self.price1_matrix, np.zeros((self.M+1, self.simulations),dtype=np.float64))
+        self.payoff = np.maximum(self.price1_matrix- self.strike, np.zeros((self.M+1, self.simulations),dtype=np.float64))
     
-#    def ls_regression(self, X, Y):
-#        X_mat = X
-#        for i in range(2, 3+1):
-#            X_mat = np.append(X_mat, X ** i, axis = 0)
-#     
-#        model = linear_model.LinearRegression()
-#        model.fit(np.transpose(X_mat), np.transpose(Y))
-#        self.coef = [model.intercept_, model.coef_[0]]
-#
-#        for i in range(0,X.shape[1]):
-#            self.predicted[i,0] = sum(self.coef[1:][0] * X_mat[:,i]) + self.coef[0]
-        
+    
     def leastsquare(self, x,y):
        #x and y are both M*1 column vector
         x_nonzero=x[x>0]
@@ -65,26 +55,18 @@ class MLSMC(object):
         x1=x_nonzero
         x2=x_nonzero**2
         x3=x_nonzero**3
-        x_mat=np.vstack((x1,x2,x3)).T
+        x4=x_nonzero**4
+        x_mat=(np.vstack((x1,x2,x3,x4)).T)
         model=linear_model.LinearRegression(fit_intercept=True)
         model.fit(x_mat,y_nonzero)
-        model_prediction=np.zeros((self.simulations,1))
+        #self.coef = np.append(model.intercept_, model.coef_)
+        x_pre=np.vstack((x,x**2,x**3,x**4)).T
+        y_pre=model.predict(x_pre).reshape(example.simulations,1)[:,0]
+        model_prediction=np.where(x>0,y_pre,0)
         self.coef = np.append(model.intercept_, model.coef_)
-        for i in range(0,self.simulations):
-            if x[i]==0:
-                continue
-            else:
-                a=x[i]
-                a1=a
-                a2=a**2
-                a3=a**3
-                a_mat=np.hstack((a1,a2,a3))
-                model_prediction[i,0]=model.predict(a_mat.reshape(1, -1))
-       
-        self.prediction = model_prediction[:,0]
+        self.prediction = model_prediction
     
     def ls_calculation(self):
-        self.value_matrix = np.zeros_like(self.payoff)
         self.value_matrix[-1, :] = self.payoff[-1, :]
         for t in range(self.M - 1, 0 , -1):
             choice = self.payoff[t,:] > 0
@@ -102,34 +84,31 @@ class MLSMC(object):
         return np.mean(self.prediction)
 
     def calculate_delta(self):
-        
-        for i in range(0,self.simulations):
-            x = self.initial_values[i]
-            x0 = 0 
-            x1=1
-            x2=2*x
-            x3=3*x**2
-            x_mat=np.vstack((x0, x1,x2,x3)).T
-            self.delta[i,0] = np.sum(x_mat * self.coef)
+        self.S_mat = np.vstack((np.zeros(len(self.initial_values)),
+                                np.ones(len(self.initial_values)),
+                                2*self.initial_values,
+                                3*self.initial_values **2, 
+                                4*self.initial_values **3))
+        self.delta = np.matmul(self.coef, self.S_mat)
         return np.mean(self.delta)
     
     def calculate_gamma(self):
-        
-        for i in range(0,self.simulations):
-            x = self.initial_values[i]
-            x0 =0 
-            x1=0
-            x2=2
-            x3=3*2*x
-            x_mat=np.vstack((x0,x1,x2,x3)).T
-            self.gamma[i,0] = np.sum(x_mat * self.coef)
+        self.S_mat = np.vstack((np.zeros(len(self.initial_values)),
+                                np.zeros(len(self.initial_values)),
+                                2*np.ones(len(self.initial_values)),
+                                3*2*self.initial_values , 
+                                4*3*self.initial_values **2))
+        self.gamma = np.matmul(self.coef, self.S_mat)
         return np.mean(self.gamma)
             
     
+
     
-example = MLSMC(40, 0.0488, 0.2, 7/12, 50, 10000, 40, 3, 1.5)
+    
+example = TMLSMC(36, 0.06, 0.2, 1, 50, 10000, 40, 3, 0.9)
 example.simulation()
-example.put_payoff()
+example.cal_payoff()
 print(example.ls_calculation())
 print(example.calculate_delta())
 print(example.calculate_gamma())
+
